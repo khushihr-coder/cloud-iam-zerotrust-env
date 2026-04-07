@@ -1,0 +1,94 @@
+name: cloud-iam-zerotrust-env
+version: "1.0.0"
+description: >
+  An RL environment where an AI agent receives an over-permissive AWS IAM
+  policy and an audit log of actual application API calls, then rewrites the
+  policy to enforce least-privilege access. The agent uses three structured
+  actions — AnalyzePolicy, TestPolicy (capped at 3 uses), and SubmitFinalPolicy
+  — to iteratively tighten the policy without breaking the application.
+  Graders are fully deterministic; no real AWS infrastructure required.
+
+author: ""
+license: MIT
+
+tags:
+  - openenv
+  - security
+  - iam
+  - cloud
+  - least-privilege
+  - cybersecurity
+  - real-world
+
+tasks:
+  - id: easy
+    name: "S3 Bucket Lockdown"
+    difficulty: easy
+    description: >
+      The policy grants s3:* on all resources. The audit log shows the
+      application only performs GetObject on a single S3 bucket ARN.
+      Replace the wildcard with the exact action and resource.
+    max_steps: 6
+
+  - id: medium
+    name: "Cross-Service Least Privilege (DynamoDB + SQS)"
+    difficulty: medium
+    description: >
+      The policy grants dynamodb:* and sqs:* on all resources.
+      The audit log reveals 4 specific DynamoDB actions and 3 SQS actions
+      on named resource ARNs. The agent must produce a scoped policy and
+      pass a 10-call simulation suite.
+    max_steps: 8
+
+  - id: hard
+    name: "Cross-Account Trust Policy Lockdown"
+    difficulty: hard
+    description: >
+      A trust policy allows any principal to assume a privileged role
+      (sts:AssumeRole). The agent receives a security memo specifying
+      exactly which external account ID and which IAM role within it are
+      permitted. It must rewrite the trust policy Principal to the exact
+      ARN and block all other principals.
+    max_steps: 10
+
+observation_space:
+  type: structured
+  fields:
+    task_id: string
+    task_description: string
+    initial_policy: string
+    audit_log: "list[string]"
+    current_policy: string
+    simulator_feedback: string
+    test_calls_used: "int (0–3)"
+    analyze_used: boolean
+    step_count: integer
+    done: boolean
+    last_action_error: "string | null"
+
+action_space:
+  type: union
+  actions:
+    - name: AnalyzePolicy
+      fields:
+        policy_json: string
+    - name: TestPolicy
+      fields:
+        policy_json: string
+    - name: SubmitFinalPolicy
+      fields:
+        policy_json: string
+
+reward_range: [-1.0, 1.0]
+
+interface:
+  protocol: websocket
+  endpoints:
+    reset: /reset
+    step: /step
+    state: /state
+
+runtime:
+  max_concurrent_envs: 50
+  recommended_workers: 2
+  memory_mb: 512
