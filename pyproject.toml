@@ -1,0 +1,13 @@
+[project]
+name = "cloud-iam-zerotrust-env"
+version = "0.1.0"
+description = "Cloud IAM Zero Trust Environment"
+authors = [
+  { name = "Khushi Rathod","Samidha Pawaskar","disha Sakaria" }
+]
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "openenv-core",
+  "pydantic"
+]
