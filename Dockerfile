@@ -20,6 +20,8 @@ RUN pip install --no-cache-dir \
 
 # Copy project files
 COPY models.py tasks.py graders.py env.py server.py openenv.yaml ./
+# Copy the server package directory
+COPY server/ ./server/
 
 # HF Spaces runs as non-root — create user
 RUN useradd -m -u 1000 appuser && chown -R appuser /app
@@ -28,6 +30,6 @@ USER appuser
 # Expose HF Spaces port
 EXPOSE 7860
 
-# Start the FastAPI server directly — no dependency on openenv CLI
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7860", \
+# Start the FastAPI server — using server.app module path
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860", \
      "--workers", "1", "--log-level", "info"]
