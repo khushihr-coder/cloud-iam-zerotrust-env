@@ -15,3 +15,6 @@ dependencies = [
   "openenv-core",
   "pydantic"
 ]
+
+[project.scripts]
+server = "server:app"
