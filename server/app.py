@@ -4,6 +4,7 @@ server/app.py — FastAPI server for Cloud-IAM-ZeroTrust-Env.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -40,3 +41,20 @@ def home():
 def docs_redirect():
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/docs")
+
+
+def main():
+    """Main entry point for running the server."""
+    import uvicorn
+    port = int(os.getenv("PORT", "7860"))
+    uvicorn.run(
+        "server.app:app",
+        host="0.0.0.0",
+        port=port,
+        workers=1,
+        log_level="info",
+    )
+
+
+if __name__ == "__main__":
+    main()
