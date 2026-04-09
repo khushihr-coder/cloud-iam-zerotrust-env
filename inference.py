@@ -2,7 +2,7 @@
 inference.py — Baseline inference script for Cloud-IAM-ZeroTrust-Env.
 
 Strictly conforms to the [START] / [STEP] / [END] stdout logging format.
-Uses OpenAI client with API_BASE_URL, MODEL_NAME, HF_TOKEN env vars.
+Uses OpenAI client with API_BASE_URL, MODEL_NAME, API_KEY env vars.
 
 Usage:
     TASK_ID=easy python inference.py
@@ -27,7 +27,7 @@ from models import ActionType
 
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
-API_KEY: Optional[str] = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+API_KEY: Optional[str] = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 
 TASK_NAME: str = os.getenv("TASK_ID", "easy")   # easy | medium | hard
 BENCHMARK: str = "cloud-iam-zerotrust"
