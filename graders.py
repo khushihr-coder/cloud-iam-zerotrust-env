@@ -20,6 +20,30 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
+# Score clamping — CRITICAL FIX for validator
+# ---------------------------------------------------------------------------
+# Validator requires scores to be STRICTLY between 0 and 1 (exclusive)
+# This means: 0.0 < score < 1.0
+
+SCORE_MIN = 0.0001  # Minimum allowed score (strictly > 0)
+SCORE_MAX = 0.9999  # Maximum allowed score (strictly < 1)
+
+
+def clamp_score(score: float) -> float:
+    """
+    Clamp score to be strictly between 0 and 1 (exclusive).
+    
+    This is required by the hackathon validator which rejects scores
+    that are exactly 0.0 or 1.0.
+    """
+    if score <= 0.0:
+        return SCORE_MIN
+    if score >= 1.0:
+        return SCORE_MAX
+    return round(score, 4)
+
+
+# ---------------------------------------------------------------------------
 # IAM Policy Simulator (scoped)
 # ---------------------------------------------------------------------------
 
@@ -210,7 +234,7 @@ def analyze_policy(policy_json: str, audit_log: List[str]) -> AnalysisResult:
 # GRADER — EASY (S3 Bucket Lockdown)
 # ---------------------------------------------------------------------------
 
-# The 4 simulation calls used by the easy grader
+# The 6 simulation calls used by the easy grader
 _EASY_TEST_SUITE = [
     # Must ALLOW
     ("s3:GetObject", "arn:aws:s3:::report-bucket/q1-report.csv", True),
@@ -225,7 +249,7 @@ _EASY_TEST_SUITE = [
 
 @dataclass
 class GraderResult:
-    score: float                    # 0.0 – 1.0
+    score: float                    # MUST be strictly between 0.0 and 1.0 (exclusive)
     passed: int
     total: int
     feedback: str
@@ -237,14 +261,17 @@ def grade_easy(policy_json: str) -> GraderResult:
     Deterministic grader for Task 1 (S3 Bucket Lockdown).
 
     Test suite: 3 must-allow + 3 must-deny = 6 checks.
-    Score = passed / 6.
+    Score = passed / 6, clamped to (0, 1) exclusive.
     """
     try:
         _parse_policy(policy_json)
     except IAMSimulatorError as exc:
         return GraderResult(
-            score=0.0, passed=0, total=len(_EASY_TEST_SUITE),
-            feedback=f"POLICY_PARSE_ERROR: {exc}", details=[]
+            score=clamp_score(0.0),  # Will become SCORE_MIN
+            passed=0, 
+            total=len(_EASY_TEST_SUITE),
+            feedback=f"POLICY_PARSE_ERROR: {exc}", 
+            details=[]
         )
 
     passed = 0
@@ -259,7 +286,9 @@ def grade_easy(policy_json: str) -> GraderResult:
         if ok:
             passed += 1
 
-    score = round(passed / len(_EASY_TEST_SUITE), 4)
+    raw_score = passed / len(_EASY_TEST_SUITE)
+    score = clamp_score(raw_score)  # Ensure strictly (0, 1)
+    
     feedback = (
         f"Easy grader: {passed}/{len(_EASY_TEST_SUITE)} checks passed. Score={score:.4f}"
     )
@@ -294,14 +323,17 @@ def grade_medium(policy_json: str) -> GraderResult:
     Deterministic grader for Task 2 (DynamoDB + SQS).
 
     Test suite: 7 must-allow + 3 must-deny = 10 checks.
-    Score = passed / 10.
+    Score = passed / 10, clamped to (0, 1) exclusive.
     """
     try:
         _parse_policy(policy_json)
     except IAMSimulatorError as exc:
         return GraderResult(
-            score=0.0, passed=0, total=len(_MEDIUM_TEST_SUITE),
-            feedback=f"POLICY_PARSE_ERROR: {exc}", details=[]
+            score=clamp_score(0.0),  # Will become SCORE_MIN
+            passed=0, 
+            total=len(_MEDIUM_TEST_SUITE),
+            feedback=f"POLICY_PARSE_ERROR: {exc}", 
+            details=[]
         )
 
     passed = 0
@@ -316,7 +348,9 @@ def grade_medium(policy_json: str) -> GraderResult:
         if ok:
             passed += 1
 
-    score = round(passed / len(_MEDIUM_TEST_SUITE), 4)
+    raw_score = passed / len(_MEDIUM_TEST_SUITE)
+    score = clamp_score(raw_score)  # Ensure strictly (0, 1)
+    
     feedback = (
         f"Medium grader: {passed}/{len(_MEDIUM_TEST_SUITE)} checks passed. Score={score:.4f}"
     )
@@ -421,17 +455,20 @@ def grade_hard(policy_json: str) -> GraderResult:
     Scoring:
       - Authorised principal allowed  : 0.40 pts (core requirement)
       - Each of 4 blocked principals  : 0.15 pts each = 0.60 pts
-      Total maximum                   : 1.00
+      Total maximum                   : 1.00 (clamped to 0.9999)
 
-    A policy that passes the allow but keeps Principal:"*" scores 0.40 only.
-    A policy that locks down everything scores 1.00.
+    A policy that passes the allow but keeps Principal:"*" scores ~0.40 only.
+    A policy that locks down everything scores 0.9999 (max allowed).
     """
     try:
         _parse_policy(policy_json)
     except IAMSimulatorError as exc:
         return GraderResult(
-            score=0.0, passed=0, total=len(_HARD_PRINCIPAL_SUITE),
-            feedback=f"POLICY_PARSE_ERROR: {exc}", details=[]
+            score=clamp_score(0.0),  # Will become SCORE_MIN
+            passed=0, 
+            total=len(_HARD_PRINCIPAL_SUITE),
+            feedback=f"POLICY_PARSE_ERROR: {exc}", 
+            details=[]
         )
 
     weights = [0.40, 0.15, 0.15, 0.15, 0.15]  # must sum to 1.0
@@ -452,7 +489,8 @@ def grade_hard(policy_json: str) -> GraderResult:
             passed += 1
             score_sum += weight
 
-    score = round(min(score_sum, 1.0), 4)
+    score = clamp_score(score_sum)  # Ensure strictly (0, 1)
+    
     feedback = (
         f"Hard grader: {passed}/{len(_HARD_PRINCIPAL_SUITE)} checks passed. Score={score:.4f}"
     )
