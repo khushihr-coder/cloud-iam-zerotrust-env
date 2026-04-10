@@ -2,7 +2,7 @@
 inference.py — Baseline inference script for Cloud-IAM-ZeroTrust-Env.
 
 Strictly conforms to the [START] / [STEP] / [END] stdout logging format.
-Uses OpenAI client with API_BASE_URL, MODEL_NAME, API_KEY env vars.
+Uses OpenAI client with API_BASE_URL, MODEL_NAME, HF_TOKEN env vars.
 
 Usage:
     TASK_ID=easy python inference.py
