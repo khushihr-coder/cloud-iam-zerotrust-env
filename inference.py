@@ -2,15 +2,10 @@
 inference.py — Baseline inference script for Cloud-IAM-ZeroTrust-Env.
 
 Strictly conforms to the [START] / [STEP] / [END] stdout logging format.
-Uses OpenAI client with API_BASE_URL, MODEL_NAME, HF_TOKEN env vars.
-
-Usage:
-    TASK_ID=easy python inference.py
-    TASK_ID=medium python inference.py
-    TASK_ID=hard python inference.py
+Runs ALL tasks (easy, medium, hard) sequentially so the validator sees
+3 graded episodes in one execution.
 """
 
-import asyncio
 import json
 import os
 import textwrap
@@ -21,29 +16,24 @@ from openai import OpenAI
 from env import CloudIAMEnv, IAMActionWrapper
 from models import ActionType
 
-# ---------------------------------------------------------------------------
-# Configuration — read from environment variables (hackathon requirement)
-# ---------------------------------------------------------------------------
-
 API_BASE_URL: str = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
 API_KEY: Optional[str] = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 
-TASK_NAME: str = os.getenv("TASK_ID", "easy")   # easy | medium | hard
 BENCHMARK: str = "cloud-iam-zerotrust"
 MAX_STEPS: int = 10
 SUCCESS_SCORE_THRESHOLD: float = 0.8
 TEMPERATURE: float = 0.2
 
-# ---------------------------------------------------------------------------
-# System prompt
-# ---------------------------------------------------------------------------
+# If TASK_ID is set run only that task, otherwise run all 3
+_task_env = os.getenv("TASK_ID", "").strip()
+TASKS_TO_RUN: List[str] = [_task_env] if _task_env else ["easy", "medium", "hard"]
 
 SYSTEM_PROMPT = textwrap.dedent("""
     You are an expert AWS Cloud Security Engineer specialising in IAM least-privilege.
 
     You receive an overly permissive IAM JSON policy and an audit log of the
-    application's actual API calls. Your job: rewrite the policy to allow ONLY
+    application'"'"'s actual API calls. Your job: rewrite the policy to allow ONLY
     the exact actions and resources in the audit log — no wildcards.
 
     You have exactly 3 tools. Respond with a single JSON object only:
@@ -54,7 +44,7 @@ SYSTEM_PROMPT = textwrap.dedent("""
     2. Test your draft (MAX 3 USES — escalating -0.05/-0.10/-0.20 penalties):
        {"action": "TestPolicy", "policy_json": "<your draft policy>"}
 
-    3. Submit your final answer (ends episode, scored 0.0–1.0):
+    3. Submit your final answer (ends episode, scored 0.0-1.0):
        {"action": "SubmitFinalPolicy", "policy_json": "<your final policy>"}
 
     STRATEGY:
@@ -67,20 +57,13 @@ SYSTEM_PROMPT = textwrap.dedent("""
 """).strip()
 
 
-# ---------------------------------------------------------------------------
-# Logging — exact format required by hackathon validator
-# ---------------------------------------------------------------------------
-
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
-def log_step(
-    step: int, action: str, reward: float, done: bool, error: Optional[str]
-) -> None:
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
     done_val = str(done).lower()
-    # Keep action on a single line, max 120 chars
     safe_action = action.replace("\n", " ").replace("\r", "")
     if len(safe_action) > 120:
         safe_action = safe_action[:117] + "..."
@@ -95,14 +78,10 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} "
-        f"score={score:.3f} rewards={rewards_str}",
+        f"score={score:.4f} rewards={rewards_str}",
         flush=True,
     )
 
-
-# ---------------------------------------------------------------------------
-# LLM call (sync OpenAI client — matches hackathon sample script pattern)
-# ---------------------------------------------------------------------------
 
 def get_model_action(
     client: OpenAI,
@@ -113,15 +92,13 @@ def get_model_action(
     obs_test_calls_used: int,
     history: List[str],
 ) -> dict:
-    """Call the LLM and parse the JSON action response."""
     history_block = "\n".join(history[-3:]) if history else "None"
-
     user_prompt = textwrap.dedent(f"""
         Step: {step}
         Task: {obs_task_description}
 
         Audit Log (these are ALL the API calls the app actually makes):
-        {chr(10).join(f'  - {entry}' for entry in obs_audit_log)}
+        {chr(10).join(f"  - {entry}" for entry in obs_audit_log)}
 
         Feedback from last action:
         {obs_simulator_feedback}
@@ -148,35 +125,27 @@ def get_model_action(
         return json.loads(text)
     except Exception as exc:
         print(f"[DEBUG] LLM call failed: {exc}", flush=True)
-        # Fallback: submit the current policy as-is
         return {"action": "SubmitFinalPolicy", "policy_json": "{}"}
 
 
-# ---------------------------------------------------------------------------
-# Main episode loop
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+def run_episode(client: OpenAI, task_name: str) -> None:
+    """Run a single episode for task_name and emit [START]/[STEP]/[END] logs."""
     env = CloudIAMEnv()
-
     rewards: List[float] = []
     history: List[str] = []
     steps_taken: int = 0
     score: float = 0.0
     success: bool = False
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        # --- Reset ---
-        obs = env.reset(task_id=TASK_NAME)
+        obs = env.reset(task_id=task_name)
 
         for step in range(1, MAX_STEPS + 1):
             if obs.done:
                 break
 
-            # --- Get action from LLM ---
             parsed = get_model_action(
                 client=client,
                 step=step,
@@ -189,8 +158,6 @@ def main() -> None:
 
             action_type: str = parsed.get("action", "SubmitFinalPolicy")
             policy_json: str = parsed.get("policy_json", "{}")
-
-            # Clean action summary for [STEP] log (not raw policy JSON)
             action_summary = f"{action_type}(policy_len={len(policy_json)})"
 
             reward: float = 0.0
@@ -198,26 +165,21 @@ def main() -> None:
             error: Optional[str] = None
 
             try:
-                # Map string action_type to ActionType enum value
                 action_map = {
                     "AnalyzePolicy": ActionType.ANALYZE,
                     "TestPolicy": ActionType.TEST,
                     "SubmitFinalPolicy": ActionType.SUBMIT,
                 }
                 resolved_type = action_map.get(action_type, ActionType.SUBMIT)
-
                 action_obj = IAMActionWrapper(
                     action_type=resolved_type,
                     policy_json=policy_json,
                 )
-
                 obs = env.step(action_obj)
-
                 reward = obs.reward or 0.0
                 done = obs.done
                 error = obs.last_action_error
 
-                # Capture terminal score when episode ends
                 if done:
                     score = obs.reward_breakdown.get("terminal_score", 0.0)
 
@@ -229,14 +191,7 @@ def main() -> None:
             rewards.append(reward)
             steps_taken = step
 
-            log_step(
-                step=step,
-                action=action_summary,
-                reward=reward,
-                done=done,
-                error=error,
-            )
-
+            log_step(step=step, action=action_summary, reward=reward, done=done, error=error)
             history.append(
                 f"Step {step}: {action_type} -> reward={reward:+.2f} | "
                 f"{obs.simulator_feedback[:80]}"
@@ -245,20 +200,50 @@ def main() -> None:
             if done:
                 break
 
+        # If episode never terminated, force a SubmitFinalPolicy so score is never 0.0
+        if not obs.done:
+            try:
+                last_policy = obs.current_policy or "{}"
+                action_obj = IAMActionWrapper(
+                    action_type=ActionType.SUBMIT,
+                    policy_json=last_policy,
+                )
+                obs = env.step(action_obj)
+                reward = obs.reward or 0.0
+                score = obs.reward_breakdown.get("terminal_score", 0.0)
+                rewards.append(reward)
+                steps_taken += 1
+                log_step(
+                    step=steps_taken,
+                    action=f"SubmitFinalPolicy(forced,policy_len={len(last_policy)})",
+                    reward=reward,
+                    done=True,
+                    error=None,
+                )
+            except Exception as exc:
+                print(f"[DEBUG] Forced submit error: {exc}", flush=True)
+
+        # Clamp score to be strictly between 0 and 1
+        if score <= 0.0:
+            score = 0.0001
+        elif score >= 1.0:
+            score = 0.9999
+
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as exc:
         print(f"[DEBUG] Fatal error in episode: {exc}", flush=True)
+        score = 0.0001
         success = False
 
     finally:
-        # Always emitted — even on exception (hackathon requirement)
-        log_end(
-            success=success,
-            steps=steps_taken,
-            score=score,
-            rewards=rewards,
-        )
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+
+
+def main() -> None:
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    for task_name in TASKS_TO_RUN:
+        run_episode(client, task_name)
 
 
 if __name__ == "__main__":
